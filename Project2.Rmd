@@ -1,0 +1,405 @@
+---
+title: "Project2"
+author: "Naveen Kumar Kateghar"
+date: "2023-04-29"
+output: html_document
+
+
+---
+```{r include=FALSE}
+
+library(corrplot)
+library(car)
+library(tidyverse)
+library(e1071)
+library(caret)
+library (leaps)
+library(glmnet)
+library(magrittr)
+library(purrr)
+library(ggplot2)
+library(GGally)
+library(progress)
+library(lubridate)
+library(tree)
+library(clusterSim)
+library(party)
+
+```
+
+
+```{r}
+data = read.csv("Project2.txt",header=FALSE)
+```
+
+
+
+
+```{r}
+attach(data)
+data
+```
+
+
+```{r}
+sum(is.na(data))
+```
+
+
+```{r}
+barplot(table(data$V5), main = "Class Distribution")
+```
+## The dataset is fairly balanced 
+
+# Univariate Analysis
+
+```{r}
+plot(density(data$V1), main = "Distribution of V1")
+plot(density(data$V2), main = "Distribution of V2")
+plot(density(data$V3), main = "Distribution of V3")
+plot(density(data$V4), main = "Distribution of V4")
+```
+
+
+```{r}
+boxplot(data$V1 ~ data$V5, data)
+```       
+
+```{r}
+boxplot(data$V2 ~ data$V5, data)
+```
+
+
+```{r}
+boxplot(data$V3 ~ data$V5, data)
+```
+
+
+```{r}
+boxplot(data$V4 ~ data$V5, data)
+```
+
+# From the above plots, it is observed that V1 and V2 are important than V3 and V4.
+
+# Bivariate Analysis
+
+
+```{r}
+ggpairs(data[,-5])
+```
+
+
+## We use Cross Validation to estimate misclassification rate.
+
+#(i) Naive Bayes
+
+
+```{r}
+
+# LOOCV
+
+set.seed(1)
+# Initialize a vector to store the results
+
+results <- c()
+
+n_iter <- nrow(data)
+
+for(i in 1:n_iter) {
+  
+  train_data <- data[-i,]
+  test_data <- data[i,]   
+  
+  
+  model <- naiveBayes(V5 ~ ., data = train_data)
+  
+  # getting the predictions from the model
+  predictions <- predict(model, test_data) 
+  error_rate <-mean(test_data$V5 != predictions) 
+  results <- c(results, error_rate)
+
+}
+  
+print(paste("Misclassification Rate using LOOCV for Naive Bayes is",round(mean(results),4)))
+
+```
+
+```{r}
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(data$V5 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+    
+    # loop over different set of folds and average over all set of folds
+    for (i in 1:k){
+      
+      train_data <- data[-folds[[i]],]
+      test_data <- data[folds[[i]],] 
+      
+      model <- naiveBayes(V5 ~ ., data = train_data)
+      
+      predictions <- predict(model, test_data) 
+      error_rate <-mean(test_data$V5 != predictions) 
+      results <- c(results, error_rate)
+      
+    }
+  
+    print(paste("Misclassification Rate using",k,"fold cv for Naive Bayes is",round(mean(results),4)))
+  
+}
+```
+
+# (ii) Classification Tree
+
+```{r}
+
+# LOOCV
+
+set.seed(1)
+# Initialize a vector to store the results
+
+results <- c()
+
+n_iter <- nrow(data)
+
+for(i in 1:n_iter) {
+  
+  train_data <- data[-i,]
+  test_data <- data[i,]   
+  
+  
+  model <- ctree(V5 ~ ., data = train_data)
+  
+  # getting the predictions from the model
+  predictions <- predict(model, test_data) 
+  error_rate <- mean(test_data$V5 != predictions) 
+  results <- c(results, error_rate)
+
+}
+  
+print(paste("Misclassification Rate using LOOCV for classification tree is",round(mean(results),4)))
+
+```
+
+
+```{r}
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(data$V5 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+    
+    # loop over different set of folds and average over all set of folds
+    for (i in 1:k){
+      
+      train_data <- data[-folds[[i]],]
+      test_data <- data[folds[[i]],] 
+      
+      
+      model <- ctree(V5 ~ ., data = train_data)
+      
+      predictions <- predict(model, test_data) 
+      error_rate <-mean(test_data$V5 != predictions) 
+      results <- c(results, error_rate)
+      
+    }
+  
+    print(paste("Misclassification Rate using",k,"fold cv for Classification Tree is",round(mean(results),2)))
+  
+}
+```
+
+# Decision tree seems to be performing poorly. This might be a case of overfitting since we have not regularized on the
+# complexity of the tree
+
+#Approaches like Tree pruning will be feasible to do in such case
+
+
+# (iii) Support Vector Classifier
+
+```{r}
+
+# LOOCV
+
+set.seed(1)
+# Initialize a vector to store the results
+
+results <- c()
+
+n_iter <- nrow(data)
+
+for(i in 1:n_iter) {
+  
+  train_data <- data[-i,]
+  test_data <- data[i,]   
+  
+  
+  model <- svm(V5 ~ ., data = train_data, kernel = "linear",type='C-classification')
+      
+  predictions <- predict(model, test_data) 
+  error_rate <-mean(test_data$V5 != predictions) 
+  results <- c(results, error_rate)
+
+}
+  
+print(paste("Misclassification Rate using LOOCV for svc is",round(mean(results),4)))
+
+```
+
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(data$V5 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+    
+    # loop over different set of folds and average over all set of folds
+    for (i in 1:k){
+      
+      train_data <- data[-folds[[i]],]
+      test_data <- data[folds[[i]],] 
+      
+      
+      model <- svm(V5 ~ ., data = train_data, kernel = "linear",type='C-classification')
+      
+      predictions <- predict(model, test_data) 
+      error_rate <-mean(test_data$V5 != predictions) 
+      results <- c(results, error_rate)
+      
+    }
+  
+    print(paste("Misclassification Rate using",k,"fold cv for SVC is",round(mean(results),2)))
+  
+}
+
+```
+
+
+# By allowing few misclassifications, we are performing good overall. SVC is reducing overfitting hence improving misclassification rate.
+
+
+
+# (iv) Randomforest
+
+## lets try an ensemble method, bootstrapped aggregation of Decision trees and check if it is reducing the misclassification rate.
+
+```{r}
+library (randomForest)
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(data$V5 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+    
+    # loop over different set of folds and average over all set of folds
+    for (i in 1:k){
+      
+      train_data <- data[-folds[[i]],]
+      test_data <- data[folds[[i]],] 
+      
+      train_data$V5 <- as.factor(train_data$V5)
+      model <- randomForest(V5 ~ ., data = train_data, importance = TRUE)
+      
+      predictions <- predict(model, test_data) 
+      error_rate <-mean(test_data$V5 != predictions) 
+      results <- c(results, error_rate)
+      
+    }
+  
+    print(paste("Misclassification Rate using",k,"fold cv for Random Forest CLassifier is",round(mean(results),2)))
+  
+}
+
+
+```
+
+
+# Random Forest is performing good as compared to other methods but not significantly good as compared to SVC.
+
+# Overall Support vector classifier is preferred because it uses linear kernel, and hence becomes computationally
+# less expensive as compared to RandomForest which uses multiple decision trees
+
+
+
+# Modeling
+
+```{r}
+data$V5 <- as.factor(data$V5)
+
+sample <- sample(c(TRUE, FALSE), nrow(data), replace=TRUE, prob=c(0.7,0.3))
+train  <- data[sample, ]
+test   <- data[!sample, ]
+  
+  
+final_model <- randomForest(V5 ~ ., data = train, importance = TRUE)
+    
+```
+
+
+```{r}
+importance((final_model))
+```
+
+
+```{r}
+varImpPlot (final_model)
+```
+
+
+```{r}
+
+predictions <- predict(final_model, test) 
+
+expected_value <- factor(test$V5)
+predicted_value <- factor(predictions)
+
+#Creating confusion matrix
+cm <- confusionMatrix(data=predicted_value, reference = expected_value)
+
+cm
+
+```
+
+```{r}
+
+```
+
+

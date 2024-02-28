@@ -1,0 +1,394 @@
+---
+title: "EAS509_Project2"
+output: html_document
+date: "2023-12-05"
+---
+
+## Loading the Data and EDA
+
+```{r}
+# Load the dataset
+oil_data <- read.csv("oil.csv")
+head(oil_data)
+names(oil_data)
+str(oil_data)
+# We observe that date is in character type
+
+# Convert date column to proper date format
+oil_data$date <- as.Date(oil_data$date) 
+head(oil_data)
+str(oil_data)
+
+
+# Plot the time series
+library(ggplot2)
+
+ggplot(oil_data, aes(x = date, y = dcoilwtico)) +
+  geom_line() +
+  labs(x = "Date", y = "Oil Price", title = "Oil Price Time Series")
+
+# Check summary statistics and missing values
+summary(oil_data)
+sum(is.na(oil_data$dcoilwtico)) # Check missing values
+
+```
+
+From the oil price time series, we find that there are missing values.By checking, we observe that the dataset contains 43 missing values in the 'dcoilwtico' column. These gaps in the data might impact the continuity of the time series and require imputation before proceeding with modeling.
+
+## Imputing Missing Data
+
+```{r}
+library(zoo)
+# Impute missing values using linear interpolation
+oil_data$dcoilwtico <- na.approx(oil_data$dcoilwtico, rule = 2)
+
+# Check if missing values are imputed
+sum(is.na(oil_data$dcoilwtico))   # Outputs 0 showing that all missing values are imputed
+
+
+# Plot the time series with imputed data
+library(ggplot2)
+ggplot(oil_data, aes(x = date, y = dcoilwtico)) +
+  geom_line() +
+  labs(x = "Date", y = "Oil Price", title = "Oil Price Time Series with Imputed Data")
+
+# Plot histogram or density plot to observe the distribution of oil prices
+ggplot(oil_data, aes(x = dcoilwtico)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(x = "Oil Price", y = "Frequency", title = "Distribution of Oil Prices")
+```
+
+
+## Identifying Trend and Seasonality
+
+```{r}
+library(ggplot2)
+library(forecast)
+
+ts_data <- ts(oil_data$dcoilwtico, start = c(2013), end=c(2017), frequency = 365.25)  # Convert to time series object
+
+# Seasonal decomposition
+decomp <- stl(ts_data, s.window = "periodic")
+
+# Plotting the decomposition
+autoplot(decomp) + labs(title = "Seasonal Decomposition of Oil Prices")
+
+
+```
+
+Initially, the trend suggests a period of stability in oil prices during early 2013, followed by a gradual decline until early 2015. This downward trend stabilizes around mid-2015, showing a period of price consistency. Post-mid 2015, the trend shifts into a subtle but consistent upward movement, indicating a gradual rise in oil prices.
+
+In essence, the overall trend demonstrates a transition from a declining phase to a subsequent phase of upward movement in oil prices. This transition marks a shift in the direction of the trend over the observed period.
+
+From the seasonality component, we can see that there are recurring patterns yearly with peaks at the beginning of the year and declines toward the end of the year.So we can say that there is annual seasonality.
+
+The trend analysis showcases broader directional shifts in prices mostly decreasing and increasing through mid 2015 , while the seasonality analysis reveals cyclical patterns that repeat annually.
+
+```{r}
+# Perform decomposition with the obtained annual seasonality
+decomp_result <- decompose(ts(oil_data$dcoilwtico, start=c(2013,1,1) ,frequency = 365.25)) 
+# Plot decomposition components
+plot(decomp_result)
+
+```
+
+
+## Model building and Evaluation
+
+With identified trend and seasonality, the Holt-Winters and ETS method might be a good choice to capture both components.we can also explore STL and SARIMA models that can handle both components effectively.
+
+## ETS Model
+
+```{r}
+library(forecast)
+ts_data <- ts(oil_data$dcoilwtico, start=c(2013),frequency = 365.25) 
+# Fit ETS model
+ets_model <- ets(ts_data)
+# Forecast using the ETS model (Forecasting next 30 days)
+forecast_ets <- forecast(ets_model, h = 30)
+# View the forecasted values
+summary(forecast_ets)
+# Visualize the forecast
+plot(forecast_ets, main = "ETS Forecast")
+
+```
+
+## Holt-Winters Model
+
+```{r}
+library(forecast)
+ts_data <- ts(oil_data$dcoilwtico, start=c(2013), frequency = 365)
+
+# Fit Holt-Winters model
+hw_model <- HoltWinters(ts_data)
+
+# Forecast using Holt-Winters model
+forecast_hw <- forecast(hw_model, h = 365)
+
+# View the forecasted values
+summary(forecast_hw)
+
+# Visualize the forecast
+plot(forecast_hw, main = "Holt-Winters Forecast")
+
+```
+
+## STL model
+
+```{r}
+library(forecast)
+ts_data <- ts(oil_data$dcoilwtico, start=c(2013),frequency = 365) 
+
+# Fit STL decomposition model
+stl_model <- stlf(ts_data)
+
+# Forecast using the STL model (for example, forecasting next 30 days)
+forecast_stl <- forecast(stl_model, h = 30)
+
+# View the forecasted values
+summary(forecast_stl)
+
+# Visualize the forecast
+plot(forecast_hw, main = "STLForecast")
+
+```
+
+
+## SARIMA Model
+
+```{r}
+library(forecast)
+
+ts_data <- ts(oil_data$dcoilwtico, start=c(2013),frequency = 365)
+
+# Fit SARIMA model
+sarima_model <- auto.arima(ts_data, seasonal = TRUE)
+
+# Forecast using SARIMA model
+forecast_sarima <- forecast(sarima_model, h = 30)  
+# View the forecasted values
+summary(forecast_sarima)
+
+# Visualize the forecast
+plot(forecast_sarima, main = "SARIMA Forecast")
+
+```
+
+
+From the observed RMSE values of each model from the forecasts,
+ETS(1.17),HW(1.08),STL(0.977),SARIMA(1.17).
+
+We can say that STL model is more suitable followed by Holt-Winters model.
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+

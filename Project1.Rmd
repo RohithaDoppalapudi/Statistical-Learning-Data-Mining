@@ -1,0 +1,1273 @@
+---
+title: "Project1"
+author: "Naveen Kumar Kateghar"
+date: "2023-04-23"
+output: html_document
+---
+
+PART -I (Health Data)
+
+#### Description of the variables
+
+The response variable is given in X1
+
+X1 = death rate per 1000 residents 
+X2 = doctor availability per 100,000 residents 
+X3 = hospital availability per 100,000 residents 
+X4 = annual per capita income in thousands of dollars 
+X5 = population density people per square mile
+
+Our objective is to make predictions for death rate(X1) and minimize for Test Mean squared error
+
+
+```{r include=FALSE}
+# loading all the packages/libraries required
+
+library(corrplot)
+library(car)
+library(tidyverse)
+library(e1071)
+library(caret)
+library (leaps)
+library(glmnet)
+library(magrittr)
+library(purrr)
+library(ggplot2)
+library(GGally)
+library(progress)
+library(lubridate)
+library(tree)
+library(clusterSim)
+
+```
+
+
+```{r}
+# Load the data from CSV file
+health <- read.csv("Health.csv")
+```
+
+
+#### we can start with some exploratory data analysis to gain insights into the dataset's structure and relationships between variables.
+
+
+```{r}
+summary(health)
+```
+
+
+```{r}
+head(health)
+```
+
+
+
+#### Checking if any missing values exist in data
+
+
+```{r}
+sum(is.na(health))
+```
+
+
+#### There are no missing values in given data.
+
+#### Correlation Analysis
+
+
+```{r}
+cor(health)
+
+cor_mat <- cor(health)
+corrplot(cor_mat, method="circle", type="lower")
+
+pairs(health)
+
+```
+
+
+####  Based on the correlation matrix, it appears that X1 is poorly positively correlated with X2 and X3, and poorly negatively correlated with X4 and X5.
+
+
+#### To further understand the relationships between X1 and the other variables, we can consider performing regression analysis and plotting data for each predictor variable as shown below
+
+
+```{r}
+
+lm_X2 <- lm(X1 ~ X2, data = health)
+summary(lm_X2)
+plot(health$X2, health$X1, main = "Doctor Availability vs Death Rate", xlab = "Doctor Availability", ylab = "Death Rate")
+abline(lm_X2)
+
+lm_X3 <- lm(X1 ~ X3, data = health)
+summary(lm_X3)
+plot(health$X3, health$X1, main = "Hospital Availability vs Death Rate", xlab = "Hospital Availability", ylab = "Death Rate")
+abline(lm_X3)
+
+lm_X4 <- lm(X1 ~ X4, data = health)
+summary(lm_X4)
+plot(health$X4, health$X1, main = "Annual Income vs Death Rate", xlab = "Annual Income", ylab = "Death Rate")
+abline(lm_X4)
+
+lm_X5 <- lm(X1 ~ X5, data = health)
+summary(lm_X5)
+plot(health$X5, health$X1, main = "Population Density vs Death Rate", xlab = "Population Density", ylab = "Death Rate")
+abline(lm_X5)
+
+```
+
+
+## Model Adequecy Checking
+
+
+```{r}
+model <- lm(X1 ~ X2 + X3 + X4 + X5, data=health)
+
+
+## Linearity of the data
+plot(model, 1)
+## Normality of residuals
+plot(model, 2)
+## Constant Variance assumption (Homoscedasticity)
+plot(model, 3)
+
+```
+
+#### The plots indicates a relatively straight line between response variable and predictor variables, suggesting that the assumption of linearity is met.
+
+#### Residuals approximately fall into a straight line which implies the errors are normally distributed
+
+#### The plot shows that , the residuals are almost equally spread for different ranges of predicted variable values
+
+
+#### Checking if multicollinearity exists among predictor variables
+
+
+```{r}
+vif(model)
+```
+
+#### The Variance Inflation factor values indicate that there is no correlation among predictors.
+
+
+#### Now lets start with fitting/modeling the data using different models and we will use several cross validation methodssuch as LOOCV,5 - fold cv and 10-fold cv to estimate our test error.
+
+
+## (i) Multiple Linear Regression
+
+#### Note: We are using a custom for-loop to perform cross validation, because we wanted to standardize data in each fold
+#### and avoid any data leakage
+
+
+
+```{r}
+
+# LOOCV
+set.seed(1)
+
+# Initialize a vector to store the results
+results <- c()
+
+for(i in 1:nrow(health)) {
+  
+  train_data <- health[-i,]
+  test_data <- health[i,] 
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  #using the information of current train data to scale the test set
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled))
+  
+  # Fitting a simple multiple linear regression model
+  fit_all <- lm(X1 ~ X2 + X3 + X4 + X5, data=train_scaled)
+  
+  # Predicting on test data using the model
+  predict_all <- predict(fit_all, test_scaled) 
+  # Calculate test error using MSE
+  mse_all <- mean ((predict_all - test_scaled$X1)^2)
+  
+  results <- c(results, mse_all)
+  
+  }
+  
+print(paste("MSE using LOOCV for Multiple Regression model is",round(mean(results),2)))
+  
+```
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(health$X1 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+
+    for (i in 1:k){
+      
+      train_data <- health[-folds[[i]],]
+      test_data <- health[folds[[i]],] 
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+      # Fitting a simple multiple linear regression model
+      fit_all <- lm(X1 ~ ., data=train_scaled)
+  
+      # Predicting on test data using the model
+      predict_all <- predict(fit_all, test_scaled) 
+      # Calculate test error using MSE
+      mse_all <- mean ((predict_all - test_scaled$X1)^2)
+      
+      results <- c(results, mse_all)
+      
+    }
+  
+    print(paste("MSE using",k,"fold cv for Multiple Regression model is",round(mean(results),2)))
+  
+}
+  
+```
+
+## (ii) Stepwise Selection
+
+```{r}
+
+# LOOCV
+
+set.seed(1)
+
+# Initialize a vector to store the results
+results <- c()
+
+for(i in 1:nrow(health)) {
+  
+    train_data <- health[-i,]
+    test_data <- health[i,] 
+    
+    #standardize data in each fold
+    train_scaled <- scale(train_data)
+    test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+    
+    train_scaled = data.frame((train_scaled))
+    test_scaled = data.frame((test_scaled))
+    
+    # Fit linear regression model using stepwise selection
+    fit_stepwise <- step(lm(X1 ~ X2 + X3 + X4 + X5, data=train_scaled), direction="both", trace=0)
+     
+    
+    # Predicting on test data using the model
+    pred_stepwise <- predict(fit_stepwise, test_scaled)
+    # Calculate test error using MSE
+    mse_stepwise <- mean ((pred_stepwise - test_scaled$X1)^2)
+    
+    results <- c(results, mse_stepwise)
+  }
+  
+print(paste("MSE using LOOCV for stepwise selection method is",round(mean(results),2)))
+  
+```
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+      # Split the data into 'k' folds
+      folds <- createFolds(health$X1 ,k = k)
+      
+      # Initialize a vector to store the results
+      results <- c()
+
+      for (i in 1:k){
+        
+        train_data <- health[-folds[[i]],]
+        test_data <- health[folds[[i]],] 
+        
+        #standardize data in each fold
+        train_scaled <- scale(train_data)
+        test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+        
+        train_scaled = data.frame((train_scaled))
+        test_scaled = data.frame((test_scaled))
+        
+        # Fit linear regression model using stepwise selection
+        fit_stepwise <- step(lm(X1 ~ X2 + X3 + X4 + X5, data=train_scaled), direction="both", trace=0)
+      
+        # Predicting on test data using the model
+        pred_stepwise <- predict(fit_stepwise, test_scaled)
+        # Calculate test error using MSE
+        mse_stepwise <- mean ((pred_stepwise - test_scaled$X1)^2)
+      
+        results <- c(results, mse_stepwise)
+        
+    }
+  
+    print(paste("MSE using",k," cv fold for stepwise selection method is",round(mean(results),2)))
+  
+}
+
+```
+
+
+## (iii) Lasso Regression
+
+
+```{r}
+
+# LOOCV
+
+set.seed(1)
+
+
+# Initialize a vector to store the results
+results <- c()
+
+for(i in 1:nrow(health)) {
+  
+  train_data <- health[-i,]
+  test_data <- health[i,] 
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled))
+  
+  # Fit linear regression model using Lasso regularization
+  x <- model.matrix(X1 ~ X2 + X3 + X4 + X5, data=train_scaled)
+  y <- train_scaled$X1
+  
+  # performing inner cross validation to get best lambda for lasso regression
+  cv.lasso <- cv.glmnet(x, y, alpha=1, nfolds=10)
+  best_lambda <- cv.lasso$lambda.min
+  fit_lasso <- glmnet(x, y, alpha=1, lambda=best_lambda)
+   
+  # Predicting on test data using the model
+  x_test <- model.matrix(X1 ~ X2 + X3 + X4 + X5, data=test_scaled)
+  pred_lasso <- predict(fit_lasso, newx=x_test)
+  # Calculate test error using MSE
+  mse_lasso <- mean(( pred_lasso -  test_scaled$X1)^2)
+  
+  results <- c(results, mse_lasso)
+  
+  }
+  
+print(paste("MSE using LOOCV for Lasso Regression is",round(mean(results),2)))
+  
+```
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(health$X1 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+
+    for (i in 1:k){
+      
+      train_data <- health[-folds[[i]],]
+      test_data <- health[folds[[i]],] 
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+      # Fit linear regression model using Lasso regularization
+      x <- model.matrix(X1 ~ X2 + X3 + X4 + X5, data=train_scaled)
+      y <- train_scaled$X1
+      cv.lasso <- cv.glmnet(x, y, alpha=1, nfolds=10)
+      best_lambda <- cv.lasso$lambda.min
+      fit_lasso <- glmnet(x, y, alpha=1, lambda=best_lambda)
+       
+      
+      # Predicting on test data using the model
+      x_test <- model.matrix(X1 ~ X2 + X3 + X4 + X5, data=test_scaled)
+      pred_lasso <- predict(fit_lasso, newx=x_test)
+      # Calculate test error using MSE
+      mse_lasso <- mean(( pred_lasso -  test_scaled$X1)^2)
+  
+    results <- c(results, mse_lasso)
+      
+  }
+  
+    print(paste("MSE using",k,"fold cv for Lasso Regression is",round(mean(results),2)))
+  
+}
+```
+
+
+## (iv) Support Vector Regressor
+
+```{r}
+
+# LOOCV
+set.seed(1)
+
+# Initialize a vector to store the results
+results <- c()
+
+for(i in 1:nrow(health)) {
+  
+  train_data <- health[-i,]
+  test_data <- health[i,] 
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled))
+  
+  # Fit linear regression model using support linear regression
+  fit_svr <- svm(X1 ~ X2 + X3 + X4 + X5, data=train_scaled)
+  
+  # Predicting on test data using the model
+  pred_svr <- predict(fit_svr, test_scaled)
+  # Calculate test error using MSE
+  mse_svr <- mean ((pred_svr - test_scaled$X1)^2)
+  
+  results <- c(results, mse_svr)
+  
+  }
+  
+print(paste("MSE using LOOCV for Support Vector Regression is",round(mean(results),2)))
+  
+```
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(health$X1 ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+
+    for (i in 1:k){
+      
+      train_data <- health[-folds[[i]],]
+      test_data <- health[folds[[i]],] 
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+     # Fit linear regression model using support linear regression
+      fit_svr <- svm(X1 ~ X2 + X3 + X4 + X5, data=train_scaled)
+      
+      # Predicting on test data using the model
+      pred_svr <- predict(fit_svr, test_scaled)
+      # Calculate test error using MSE
+      mse_svr <- mean ((pred_svr - test_scaled$X1)^2)
+  
+      results <- c(results, mse_svr)
+      
+  }
+  
+    print(paste("MSE using",k,"fold cv is",round(mean(results),2)))
+  
+}
+```
+
+
+#### we have evaluated Test MSE for multiple models and we can see that support vector regressor is giving least MSE score of 0.07, so
+#### we can go ahead and fit svm to our data.
+
+
+```{r}
+health_scaled <- health %>% mutate_all(~(scale(.) %>% as.vector))
+svr.fit <- svm(X1 ~ X2 + X3 + X4 + X5, data = health_scaled)
+```
+
+
+```{r}
+summary(svr.fit)
+```
+
+
+
+
+# PART -II (Airfoil Noise Data)
+
+
+#### Dataset Information:
+
+#### Predictor variables:
+
+#### frequency : Frequency in Hertzs [Hz].
+#### angle_of_attack : Angle of attack (AoA, α), in degrees [°].
+#### chord_length : Chord length, in meters [m].
+#### free_stream_velocity : Free-stream velocity, in meters per second [m/s].
+#### suction_side_displacement_thickness : Suction side displacement thickness (𝛿), in meters [m].
+
+#### Output:
+
+#### scaled_sound_pressure_level: Scaled sound pressure level, in decibels [dB].
+
+ 
+ 
+```{r}
+airfoil <- read.csv("AirfoilSelfNoise.csv")
+```
+
+
+```{r}
+head(airfoil)
+```
+
+
+```{r}
+summary(airfoil)
+```
+
+
+
+#### Univariate and Bivariate Analysis
+
+
+```{r}
+# Kernel Density Plot
+plot(density(airfoil$scaled_sound_pressure_level), xlab='values',  ylab='density',  main='Distribution of Response variable')
+```
+
+
+#### most of the data points in our data has values of sound pressure level of around 130 decibles
+
+
+
+### frequency vs scaled_sound_pressure_level
+
+
+```{r}
+plot(airfoil$frequency, airfoil$scaled_sound_pressure_level, main="frequency vs sound pressure level",xlab=" values of frequency", ylab="scaled sound pressure level ", pch=19)
+abline(lm(airfoil$scaled_sound_pressure_level~airfoil$frequency), col="red")  
+lines(lowess(airfoil$frequency, airfoil$scaled_sound_pressure_level), col="blue")
+
+boxplot(airfoil$frequency,main="frequency")
+
+print(cor(airfoil$frequency, airfoil$scaled_sound_pressure_level))
+```
+
+
+#### As per above plots, we observe that higher values of frequency corresponds to lower values of sound pressure level with a
+#### correlation value of -0.39 which represents strength of the relationship between frequency and sound pressure level
+
+#### we also observe that most the frequencies lies in range of 1600 - 4000 which is the inter quartile range
+
+### angle_of_attack vs scaled_sound_pressure_level
+
+
+
+```{r}
+plot(airfoil$angle_of_attack, airfoil$scaled_sound_pressure_level, main="angle_of_attack vs sound pressure level",xlab=" values of angle_of_attack", ylab="scaled sound pressure level ", pch=19)
+abline(lm(airfoil$scaled_sound_pressure_level~airfoil$angle_of_attack), col="red")  
+lines(lowess(airfoil$angle_of_attack, airfoil$scaled_sound_pressure_level), col="blue")
+
+boxplot(airfoil$angle_of_attack,main="Angle of attack")
+
+print(cor(airfoil$angle_of_attack, airfoil$scaled_sound_pressure_level))
+```
+
+
+
+#### we observe that angle of attack is poorly correlated with sound pressure level, which means angle of attack is not
+#### able to explain the variance in response variable
+
+
+### chord_length vs scaled_sound_pressure_level
+
+
+```{r}
+plot(airfoil$chord_length, airfoil$scaled_sound_pressure_level, main="chord_length vs sound pressure level",xlab=" values of chord_length", ylab="scaled sound pressure level ", pch=19)
+abline(lm(airfoil$scaled_sound_pressure_level~airfoil$chord_length), col="red")  
+lines(lowess(airfoil$chord_length, airfoil$scaled_sound_pressure_level), col="blue")
+
+boxplot(airfoil$chord_length,main="Chord length")
+
+print(cor(airfoil$chord_length, airfoil$scaled_sound_pressure_level))
+```
+
+
+```{r}
+table(airfoil$chord_length)
+
+probabilities = c(278,237,263,271,266,188 ) %>%
+  map(function(x) x/nrow(airfoil))
+
+print(probabilities) 
+```
+
+
+
+#### we observe that there are only 6 unique values of chord length in our dataset
+#### i.e, each sample has a chord lenght of any of these values only(0.0254,0.0508,0.1016,0.1524,0.2286,0.3048)
+#### and all datapoints are almost equally likely to fall into these categories of chord length
+
+#### Hence the chord length is not able to add much information in distinguishing the datapoints, which is also
+#### evident from its correlation value with sound pressure level.
+
+
+### free_stream_velocity vs scaled_sound_pressure_level
+
+
+```{r}
+plot(airfoil$free_stream_velocity, airfoil$scaled_sound_pressure_level, main="free_stream_velocity vs sound pressure level",xlab=" values of free_stream_velocity", ylab="scaled sound pressure level ", pch=19)
+abline(lm(airfoil$scaled_sound_pressure_level~airfoil$free_stream_velocity), col="red")  
+lines(lowess(airfoil$free_stream_velocity, airfoil$scaled_sound_pressure_level), col="blue")
+
+boxplot(airfoil$free_stream_velocity,main="free_stream_velocity")
+
+print(cor(airfoil$free_stream_velocity, airfoil$scaled_sound_pressure_level))
+```
+
+
+
+```{r}
+table(airfoil$free_stream_velocity)
+
+c(281,480,277,465 ) %>%
+  map(function(x) x/nrow(airfoil))
+
+```
+
+
+
+#### we can see that almost 60% of our data have free stream velocity of 39.6 or 55.5
+#### This means that if we are given a value of free stream velocity we will not be able to predict the value for 
+#### sound pressure level.
+#### we also observe poor correlation between free stream velocity and scaled_sound_pressure_level
+
+
+### suction_side_displacement_thickness vs scaled_sound_pressure_level
+
+
+
+```{r}
+plot(airfoil$suction_side_displacement_thickness, airfoil$scaled_sound_pressure_level, main="suction_side_displacement_thickness vs sound pressure level",xlab=" values of suction_side_displacement_thickness", ylab="scaled sound pressure level ", pch=19)
+abline(lm(airfoil$scaled_sound_pressure_level~airfoil$suction_side_displacement_thickness), col="red")  
+lines(lowess(airfoil$suction_side_displacement_thickness, airfoil$scaled_sound_pressure_level), col="blue")
+
+boxplot(airfoil$suction_side_displacement_thickness,main="suction_side_displacement_thickness")
+
+print(cor(airfoil$suction_side_displacement_thickness, airfoil$scaled_sound_pressure_level))
+```
+
+
+#### we observe that high values of suction_side_displacement_thickness corresponds to low values of scaled_sound_pressure_level
+
+
+## Model Adequecy checking
+
+
+### first lets check if our data is following the assumptions for a linear model
+### In order to check regression assumptions, we’ll examine the distribution of residuals.
+
+
+
+```{r}
+model <- lm(scaled_sound_pressure_level ~ ., data = airfoil)
+model
+
+```
+
+
+```{r}
+summary(model)
+```
+
+
+```{r fig.height=5, fig.width=5}
+par(mfrow = c(2, 2))
+plot(model)
+```
+
+
+
+## Linearity of the data
+
+
+```{r}
+plot(model, 1)
+```
+
+#### we can say that, the predictor variables and the target variable follows linearity
+
+
+### Constant Variance assumption (Homoscedasticity)
+
+
+```{r}
+plot(model, 3)
+```
+
+
+### The plot shows that , the residuals are almost equally spread for different ranges of predicted variable values
+
+## Normality of residuals
+
+
+```{r}
+plot(model, 2)
+```
+
+
+### Residuals approximately fall into a straight line which implies the errors are normally distributed
+
+
+## Collinearity Analysis
+
+
+```{r}
+# create pairs plot
+ggpairs(airfoil)
+```
+
+
+```{r}
+vif(model)
+```
+
+#### we dont have the problem of collinearity in our data, since the variation inflation factor for all predictors is less than 5.
+
+
+
+#### Now lets visualize our data using PCA, 
+#### In PCA, maximum variance in the data is captured by first and second principal component
+#### lets see if principal components show linearity in our data 
+
+#### Normalize data
+
+
+```{r}
+airfoil.norm <- data.Normalization(airfoil, type="n1", normalization="column")
+airfoil.y.norm <- data.Normalization(airfoil$scaled_sound_pressure_level, type="n1", normalization="column")
+```
+
+```{r}
+airfoil.pca <- prcomp(airfoil.norm, center=TRUE, scale.=TRUE)
+```
+
+
+
+```{r}
+pcs <- as.data.frame(airfoil.pca$x)
+plot(pcs$PC2,airfoil.y.norm)
+```
+
+#### As shown in above plot, linearity is evident between the response variable and principle component.
+
+
+
+#### Now lets start with fitting/modeling the data using linear models and we will use LOOCV,5 - fold cv and 10-fold cv
+#### to estimate our test erros
+
+
+
+## (i)Multiple Linear Regression
+
+
+```{r}
+
+# LOOCV
+
+set.seed(1)
+# Initialize a vector to store the results
+
+result <- c()
+
+n_iter <- nrow(airfoil)
+
+# Since we are using a custom for loop for cross validation, we have shown a
+# progress bar to track the estimated time to perform cross validation.
+
+pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                       total = n_iter,
+                       complete = "=",   # Completion bar character
+                       incomplete = "-", # Incomplete bar character
+                       current = ">",    # Current bar character
+                       clear = FALSE,    # If TRUE, clears the bar when finish
+                       width = 100)      # Width of the progress bar
+
+for(i in 1:n_iter) {
+  
+  pb$tick()
+  
+  train_data <- airfoil[-i,]
+  test_data <- airfoil[i,] 
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled))
+  
+  # fitting a simple multiple linear regression model
+  model <- lm(scaled_sound_pressure_level ~ ., data = train_scaled)
+  
+  # getting the predictions from the model
+  predictions <- predict(model, test_scaled) 
+  mse <- mean ((predictions- test_scaled$scaled_sound_pressure_level)^2)
+  
+  result <- c(result, mse)
+}
+  
+print(paste("MSE using LOOCV for Multiple Regression Model is",round(mean(result),2)))
+  
+```
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(airfoil$scaled_sound_pressure_level ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+
+    for (i in 1:k){
+      
+      train_data <- airfoil[-folds[[i]],]
+      test_data <- airfoil[folds[[i]],] 
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+      # fitting a simple multiple linear regression model
+      model <- lm(scaled_sound_pressure_level ~ ., data = train_scaled)
+      
+      # getting the predictions from the model
+      predictions <- predict(model, test_scaled) 
+      mse <- mean ((predictions- test_scaled$scaled_sound_pressure_level)^2)
+      
+      results <- c(results, mse)
+      
+    }
+  
+    print(paste("MSE using",k,"fold cv for Multiple Regression Model is",round(mean(results),2)))
+  
+}
+  
+
+   
+```
+
+
+
+
+## (ii)Lasso Regression
+
+
+```{r}
+
+# LOOCV
+set.seed(1)
+
+# Initialize a vector to store the results
+result <- c()
+
+n_iter <- nrow(airfoil)
+
+pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                       total = n_iter,
+                       complete = "=",   # Completion bar character
+                       incomplete = "-", # Incomplete bar character
+                       current = ">",    # Current bar character
+                       clear = FALSE,    # If TRUE, clears the bar when finish
+                       width = 100)      # Width of the progress bar
+
+
+
+for(i in 1:n_iter){
+  
+  pb$tick()
+  
+  train_data <- airfoil[-i,]
+  test_data <- airfoil[i,] 
+   
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled)) 
+  
+  
+  # fitting a lasso model
+  
+  x <- model.matrix(scaled_sound_pressure_level ~ frequency + angle_of_attack + chord_length + free_stream_velocity + suction_side_displacement_thickness, data=train_scaled)[, -1]
+  
+  y <- train_scaled$scaled_sound_pressure_level
+  
+  x_test <- model.matrix(scaled_sound_pressure_level ~ frequency + angle_of_attack + chord_length + free_stream_velocity + suction_side_displacement_thickness, data=test_scaled)[, -1]
+  
+   
+  # performing cross validation here to get best lambda for current training data set
+  cv.lasso <- cv.glmnet(x, y, alpha=1, nfolds=10)
+  best_lambda <- cv.lasso$lambda.min
+  fit_lasso <- glmnet(x, y, alpha=1, lambda=best_lambda)
+  
+  pred_lasso <- predict(fit_lasso, newx=x_test)
+  mse_lasso <- mean(( pred_lasso -  test_scaled$scaled_sound_pressure_level)^2)
+  
+  result <- c(result, mse_lasso)
+  
+}
+  
+print(paste("MSE using LOOCV for Lasso is",round(mean(result),2)))
+
+```
+
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(airfoil$scaled_sound_pressure_level ,k = k)
+    
+    # Initialize a vector to store the results
+    result <- c()
+  
+    for (i in 1:k){
+      
+      
+      train_data <- airfoil[-folds[[i]],]
+      test_data <- airfoil[folds[[i]],] 
+      
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+      
+      # fitting a lasso model
+      
+      x <- model.matrix(scaled_sound_pressure_level ~ frequency + angle_of_attack + chord_length + free_stream_velocity + suction_side_displacement_thickness, data=train_scaled)[, -1]
+      
+      y <- train_scaled$scaled_sound_pressure_level
+      
+      x_test <- model.matrix(scaled_sound_pressure_level ~ frequency + angle_of_attack + chord_length + free_stream_velocity + suction_side_displacement_thickness, data=test_scaled)[, -1]
+      
+      # performing inner cross validation to get best lambda
+      cv.lasso <- cv.glmnet(x, y, alpha=1, nfolds=10)
+      best_lambda <- cv.lasso$lambda.min
+      fit_lasso <- glmnet(x, y, alpha=1, lambda=best_lambda)
+      
+      pred_lasso <- predict(fit_lasso, newx=x_test)
+      
+     
+      mse_lasso <- mean(( pred_lasso -  test_scaled$scaled_sound_pressure_level)^2)
+      
+      
+      result <- c(result, mse_lasso)
+      
+    }
+  
+    print(paste("MSE using",k,"fold cv  for Lasso is",round(mean(result),2)))
+  
+}
+```
+
+
+## (iii)Support Vector Regressor
+
+
+```{r}
+set.seed(1)
+
+# Initialize a vector to store the results
+# LOOCV
+
+n_iter <- nrow(airfoil)
+
+pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                       total = n_iter,
+                       complete = "=",   # Completion bar character
+                       incomplete = "-", # Incomplete bar character
+                       current = ">",    # Current bar character
+                       clear = FALSE,    # If TRUE, clears the bar when finish
+                       width = 100)      # Width of the progress bar
+ 
+
+
+result <- c()
+
+for(i in 1:n_iter) {
+  
+  pb$tick()
+  
+  train_data <- airfoil[-i,]
+  test_data <- airfoil[i,] 
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled))
+  
+  # fitting a simple multiple linear regression model
+  model <- svm(scaled_sound_pressure_level ~ ., data = train_scaled)
+  
+  # getting the predictions from the model
+  predictions <- predict(model, test_scaled) 
+  mse <- mean ((predictions- test_scaled$scaled_sound_pressure_level)^2)
+  
+  result <- c(result, mse)
+  
+    
+}
+  
+print(paste("MSE using LOOCV for SVR is",round(mean(result),2)))
+
+```
+
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(airfoil$scaled_sound_pressure_level ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+ 
+    for (i in 1:k){
+      
+      train_data <- airfoil[-folds[[i]],]
+      test_data <- airfoil[folds[[i]],] 
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+      # fitting a simple multiple linear regression model
+      model <- svm(scaled_sound_pressure_level ~ ., data = train_scaled)
+      
+      # getting the predictions from the model
+      predictions <- predict(model, test_scaled) 
+      mse <- mean ((predictions- test_scaled$scaled_sound_pressure_level)^2)
+      
+      results <- c(results, mse)
+      
+    }
+  
+    print(paste("MSE using",k,"fold cv for SVR is",round(mean(results),2)))
+  
+}
+
+```
+
+
+
+## (iv) Regression Tree
+
+
+```{r}
+
+# LOOCV
+set.seed(1)
+
+# Initialize a vector to store the results
+
+n_iter <- nrow(airfoil)
+
+pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                       total = n_iter,
+                       complete = "=",   # Completion bar character
+                       incomplete = "-", # Incomplete bar character
+                       current = ">",    # Current bar character
+                       clear = FALSE,    # If TRUE, clears the bar when finish
+                       width = 100)      # Width of the progress bar
+ 
+
+
+result <- c()
+
+for(i in 1:n_iter) {
+  
+  pb$tick()
+  
+  train_data <- airfoil[-i,]
+  test_data <- airfoil[i,] 
+  
+  #standardize data in each fold
+  train_scaled <- scale(train_data)
+  test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+  
+  train_scaled = data.frame((train_scaled))
+  test_scaled = data.frame((test_scaled))
+  
+  # fitting a simple multiple linear regression model
+  model <- tree(scaled_sound_pressure_level ~ ., data = train_scaled)
+  
+  # getting the predictions from the model
+  predictions <- predict(model, test_scaled) 
+  mse <- mean ((predictions- test_scaled$scaled_sound_pressure_level)^2)
+  
+  result <- c(result, mse)
+  
+    
+}
+  
+print(paste("MSE using LOOCV for Tree is",round(mean(result),2)))
+
+
+```
+
+
+
+
+```{r}
+
+# 'K' fold
+# we use 5 and 10 fold cross validation 
+set.seed(1)
+
+n_folds = c(5, 10)
+
+for(k in n_folds){
+  
+    # Split the data into 'k' folds
+    folds <- createFolds(airfoil$scaled_sound_pressure_level ,k = k)
+    
+    # Initialize a vector to store the results
+    results <- c()
+ 
+    for (i in 1:k){
+      
+      train_data <- airfoil[-folds[[i]],]
+      test_data <- airfoil[folds[[i]],] 
+      
+      #standardize data in each fold
+      train_scaled <- scale(train_data)
+      test_scaled <- scale(test_data, center=attr(train_scaled, "scaled:center"), scale=attr(train_scaled, "scaled:scale"))
+      
+      train_scaled = data.frame((train_scaled))
+      test_scaled = data.frame((test_scaled))
+      
+      # fitting a simple multiple linear regression model
+      model <- tree(scaled_sound_pressure_level ~ ., data = train_scaled)
+      
+      # getting the predictions from the model
+      predictions <- predict(model, test_scaled) 
+      mse <- mean ((predictions- test_scaled$scaled_sound_pressure_level)^2)
+      
+      results <- c(results, mse)
+      
+    }
+  
+    print(paste("MSE using",k,"fold cv for Tree is",round(mean(results),2)))
+  
+}
+```
+
+
+#### we can see that svr has the lowest test mse of 0.2, hence we select SVR as our optimal model
+
+
+ 
+```{r}
+airfoil_scaled <- airfoil %>% mutate_all(~(scale(.) %>% as.vector))
+svr.fit <- svm(scaled_sound_pressure_level ~ .,  airfoil_scaled)
+```
+ 
+ 
+```{r}
+summary(svr.fit)
+```
+
+```{r}
+
+```
+

@@ -1,0 +1,408 @@
+---
+title: "EAS509_Project1"
+output: html_document
+date: "2023-11-20"
+---
+
+## Exploratory Data Analysis
+
+```{r}
+landmine_data <- read.csv("Mine_Dataset.csv")
+dim(landmine_data)
+names(landmine_data)
+
+# Summary statistics
+summary(landmine_data)
+
+# Distribution plot
+hist(landmine_data$V, main = "Distribution of Voltage", xlab = "Voltage")
+# Since the voltage values are normlaised, we find them to between 0 &1 and mostly between 0.3 to 0.4.
+
+# Summary statistics
+summary(landmine_data$H)
+
+# Boxplot for Height vs. Mine Type
+boxplot(H ~ M, data = landmine_data, main = "Height vs. Mine Type", xlab = "Mine Type", ylab = "Height")
+# We find from the boxplot that there is not any noticeable difference in sensor height concerning different mine types, indicating that height alone may not be a distinguishing factor in mine detection.
+
+# Frequency table for Soil Type
+table(landmine_data$S)
+
+# Bar plot for Soil Type
+barplot(table(landmine_data$S), main = "Soil Type Distribution", xlab = "Soil Type", ylab = "Frequency")
+
+#  Shows the count of different soil types present in the dataset, which are 6 and the barplot also shows that there is almost equal distribution of soil types.
+
+# Contingency table between Soil Type and Mine Type
+table(landmine_data$S, landmine_data$M)
+
+# Mine types are distributed across various soil types with the smae number, indicating correlations between soil conditions and types of encountered mines.
+
+
+# Frequency table for Mine Type
+table(landmine_data$M)
+
+# Bar plot for Mine Type
+barplot(table(landmine_data$M), main = "Mine Type Distribution", xlab = "Mine Type", ylab = "Frequency")
+
+# It provides an insight into the balance in the dataset concerning the different classes of mines, which can influence the model's ability to predict these classes accurately.
+
+# Selecting the numeric columns
+numeric_cols <- landmine_data[, sapply(landmine_data, is.numeric)]
+
+# Calculating the correlation matrix
+correlation_matrix <- cor(numeric_cols)
+
+# Showing the correlation matrix
+print(correlation_matrix)
+
+# Visualizing the correlation matrix as a heatmap
+library(corrplot)
+corrplot(correlation_matrix, method = "color")
+
+# Except for the moderately neagtive correlation between V and H, every other variable has weak either positive or negative correlation with the other.
+```
+
+
+## Data Cleaning
+
+```{r}
+# Handling missing values and outliers
+# Since normalization is done, no explicit normalization needed
+
+# Checking for missing values in the entire dataset
+any(is.na(landmine_data))
+
+# There are no missing values in the dataset
+
+
+# Checking for outliers using z-scores in all columns
+z_scores_all <- apply(landmine_data, 2, scale)
+
+# Check if any outliers exist in any numeric column based on z-score threshold (e.g., 3)
+any_outliers <- any(abs(z_scores_all) > 3)  # Adjust threshold (3) as needed
+
+# Return TRUE if outliers exist, FALSE otherwise
+any_outliers
+
+# Ther are no outliers in the datset.
+```
+
+
+## Model Building
+
+### K-means clustering
+
+```{r}
+# Perform K-Means Clustering
+set.seed(123)
+k <- 5  # Number of clusters based on the classes
+kmeans_model <- kmeans(landmine_data[, -4], centers = k)
+
+# Assess Cluster Quality
+# Compute Within-Cluster Sum of Squares (WSS) to determine optimal k
+wss <- numeric(10)
+for (i in 1:10) {
+  kmeans_temp <- kmeans(landmine_data[, -4], centers = i)
+  wss[i] <- kmeans_temp$tot.withinss
+}
+plot(1:10, wss, type = 'b', xlab = 'Number of Clusters', ylab = 'Within-cluster Sum of Squares')
+
+# Assign Clusters to Data Points
+cluster_assignments <- kmeans_model$cluster
+
+# Append Cluster Assignments to the Data
+clustered_data <- cbind(landmine_data, Cluster = cluster_assignments)
+
+# Check the cluster sizes
+table(cluster_assignments)
+
+# Now we have 'clustered_data' containing the original data with an additional column 'Cluster' indicating the cluster assignments for each data point.
+
+# Cluster Visulaization
+
+# Static 3D Scatterplot using scatterplot3d package
+library(scatterplot3d)
+scatterplot3d(landmine_data$V, landmine_data$H, landmine_data$S, 
+              color = cluster_assignments, pch = 16, 
+              xlab = "Voltage", ylab = "High", zlab = "SoilType")
+
+# Dimensionality Reduction
+# Perform PCA for dimensionality reduction
+pca_result <- prcomp(landmine_data[, -4], scale. = TRUE)
+# Visualize first two principal components
+plot(pca_result$x[,1], pca_result$x[,2], col = cluster_assignments, pch = 16, 
+     xlab = "PC1", ylab = "PC2")
+
+```
+
+
+### Hierarchical Clustering
+
+```{r}
+# Perform Hierarchical Clustering
+distance_matrix <- dist(landmine_data[, -4])
+hierarchical_model <- hclust(distance_matrix, method = "ward.D2")
+
+# Visualize Dendrogram
+plot(hierarchical_model, hang = -1, cex = 0.6, main = "Hierarchical Clustering Dendrogram")
+
+# Cut the Dendrogram to Form Clusters
+num_clusters <- 5  # Adjust based on your preference or dendrogram visualization
+
+clusters <- cutree(hierarchical_model, num_clusters)
+
+# Check the cluster sizes
+table(clusters)
+
+
+# Static 3D Scatterplot using scatterplot3d package
+library(scatterplot3d)
+scatterplot3d(landmine_data$V, landmine_data$H, landmine_data$S, 
+              color = clusters, pch = 16, 
+              xlab = "Voltage", ylab = "High", zlab = "SoilType")
+
+
+```
+
+
+### Random Forest for Classification
+
+```{r}
+# Train-Test Split
+set.seed(123456789)
+library(caTools)
+split <- sample.split(landmine_data$M, SplitRatio = 0.7)
+train_data <- subset(landmine_data, split == TRUE)
+test_data <- subset(landmine_data, split == FALSE)
+
+# Convert response variable to a factor
+train_data$M <- factor(train_data$M)
+test_data$M <- factor(test_data$M)
+
+# Train the Random Forest model
+library(randomForest)
+rf_model <- randomForest(M ~ ., data = train_data)
+
+# Make predictions on test data
+predicted <- predict(rf_model, test_data)
+
+# Evaluate the model
+library(caret)
+
+# Ensure both predicted and actual values are factors with the same levels
+predicted <- factor(predicted, levels = levels(test_data$M))
+
+# Create confusion matrix
+cm <- confusionMatrix(predicted, test_data$M)
+print(cm)
+
+```
+
+### Support Vector Machines (SVM) for Classification
+
+```{r}
+# Train-Test Split
+set.seed(123456789)
+library(caTools)
+split <- sample.split(landmine_data$M, SplitRatio = 0.7)
+train_data <- subset(landmine_data, split == TRUE)
+test_data <- subset(landmine_data, split == FALSE)
+
+# Convert response variable to a factor
+train_data$M <- factor(train_data$M)
+test_data$M <- factor(test_data$M)
+
+# Model Training
+library(e1071)
+svm_model <- svm(M ~ ., data = train_data, kernel = "radial")
+
+# Make predictions on test data
+predicted <- predict(svm_model, test_data)
+
+# Evaluate the model
+library(caret)
+
+# Ensure both predicted and actual values are factors with the same levels
+predicted <- factor(predicted, levels = levels(test_data$M))
+
+# Create confusion matrix
+cm <- confusionMatrix(predicted, test_data$M)
+print(cm)
+```
+
+
+### Gradient Boosting Machines (GBM) for Classification
+
+```{r}
+# Train-Test Split
+set.seed(123456789)
+library(caTools)
+split <- sample.split(landmine_data$M, SplitRatio = 0.7)
+train_data <- subset(landmine_data, split == TRUE)
+test_data <- subset(landmine_data, split == FALSE)
+
+# Convert response variable to a factor
+train_data$M <- factor(train_data$M)
+test_data$M <- factor(test_data$M)
+
+# Model Training
+library(gbm)
+gbm_model <- gbm(M ~ ., data = train_data, distribution = "multinomial", n.trees = 100, interaction.depth = 3)
+
+# Model Evaluation
+predicted_gbm <- predict.gbm(gbm_model, newdata = test_data, n.trees = 100)  # Using n.trees from training
+predicted_gbm_class <- apply(predicted_gbm, 1, which.max)  # Extracting class with highest probability
+
+# Convert predictions to factors
+predicted_gbm_factor <- factor(predicted_gbm_class, levels = levels(test_data$M))
+
+# Create confusion matrix
+confusionMatrix(predicted_gbm_factor, test_data$M)
+
+```
+
+
+### K-Means Clustering followed by Classification
+
+```{r}
+# Assuming 'landmine_data' contains your dataset with features and the dependent variable 'M'
+
+# Perform K-Means Clustering
+set.seed(123456789)
+k <- 5  # Number of clusters based on the classes
+kmeans_model <- kmeans(landmine_data[, -4], centers = k)
+
+# Get cluster assignments for the entire dataset
+cluster_assignments <- kmeans_model$cluster
+
+# Append Cluster Assignments to the Data
+clustered_data <- cbind(landmine_data, Cluster = cluster_assignments)
+
+# Train-Test Split
+set.seed(123456789)
+library(caTools)
+split <- sample.split(clustered_data$M, SplitRatio = 0.7)
+train_data <- subset(clustered_data, split == TRUE)
+test_data <- subset(clustered_data, split == FALSE)
+
+# Convert response variable to a factor
+train_data$M <- factor(train_data$M)
+test_data$M <- factor(test_data$M)
+
+# Train the Random Forest model with Cluster feature
+library(randomForest)
+rf_model_with_clusters <- randomForest(M ~ . + Cluster, data = train_data)
+
+# Make predictions on test data
+predicted_with_clusters <- predict(rf_model_with_clusters, test_data)
+
+# Evaluate the model
+library(caret)
+predicted_with_clusters <- factor(predicted_with_clusters, levels = levels(test_data$M))
+cm <- confusionMatrix(predicted_with_clusters, test_data$M)
+print(cm)
+
+```
+
+#### Plotting confusion matrix for random forest for classification.
+
+
+```{r}
+# Necessary Libraries
+library(randomForest)
+library(caret)
+library(ggplot2)
+data <- read.csv("Mine_Dataset.csv")
+
+# Assuming 'data' is your dataset
+set.seed(123456789)
+index <- createDataPartition(data$M, p = 0.7, list = FALSE)
+train_data <- data[index, ]
+test_data <- data[-index, ]
+
+# Convert response variable to a factor in training and testing data
+train_data$M <- factor(train_data$M)
+test_data$M <- factor(test_data$M)
+
+# Train the Random Forest model
+rf_model <- randomForest(M ~ ., data = train_data)
+
+# Make predictions on test data
+predicted <- predict(rf_model, test_data)
+
+# Ensure both predicted and actual values are factors with the same levels
+predicted <- factor(predicted, levels = levels(test_data$M))
+
+# Create confusion matrix
+cm <- confusionMatrix(predicted, test_data$M)
+print(cm)
+
+plot_confusion_matrix <- function(cm) {
+  cm_table <- as.data.frame(cm$table)
+  colnames(cm_table) <- c('Predicted', 'Actual', 'Count')
+  
+  # Scale the Count values for visualization
+  cm_table$Count_Scaled <- log10(cm_table$Count + 1)  # Adjust as needed
+  
+  ggplot(cm_table, aes(x = Actual, y = Predicted, fill = Count_Scaled)) +
+    geom_tile() +
+    geom_text(aes(label = Count), vjust = 1) +
+    labs(title = "Confusion Matrix",
+         x = "Actual",
+         y = "Predicted") +
+    scale_fill_gradient(low = "lightyellow", high = "orange", na.value = "grey90") +
+    theme_minimal()
+}
+
+# Plot the confusion matrix
+plot_confusion_matrix(cm)
+```
+
+
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
